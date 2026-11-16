@@ -1,0 +1,18 @@
+{
+  "wallet": "0xa1b25c5A83Bc5FAe2Ddd3EB94412C3971a54F425",
+  "MockPool": "0x61E94433Ea4B03185c8272CC4D4B0F537C89528c",
+  "AISignal": "0xe194670A23B15a748c12c9dEA510B93F3bdd46C0",
+  "GuardedStopReactive": "0x74797ad794C71D7f58d0a0109192fc83AAb5fE3A",
+  "StopExecutor": "0x098D7c8f80F699508be44B1145D41394faD17cDe",
+  "callbackProxy": "0x476F44b11F5C942c58f4c8E3d0300E5710743585",
+  "reactiveFundWei": 5250000000000000000,
+  "txs": {
+    "MockPool": "0x780346772080f8cb74a530eceaa8c30e3bc8884513baa06c06831f281b2e4fcc",
+    "AISignal": "0x9f38e1c05e5d1db8e4bd475075cdd211e62c16d3714ed084f6d67a0b9436f8a4",
+    "GuardedStopReactive": "0xe816f596abffc57b1229543d8fc05d02c2eaca21e970f5cd0f53384c623bcdc3",
+    "StopExecutor": "0xa12bb9719b22e507e650a90a007ba3991936052e8b30ef6e1fa82068f4ff2f72",
+    "fundStopExecutor": "0x6408a73453dc03ed0c0ab14c5715c16e9df5a52fbcdde2c3e895dd31f55dfa40",
+    "reactive.setExecutor": "0xbb93dc0678cea3e30236cf3cfa2950e7820d1f7d4cdb2e0175224c7b6066fd6b",
+    "pool.setExecutor": "0xe87ec22d9f6a6f0fd4c3bf980cffad6856955ca8b621bb9526212cd079ad2d68"
+  }
+}

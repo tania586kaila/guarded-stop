@@ -1,0 +1,29 @@
+# Foundry build artifacts
+out/
+cache/
+broadcast/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Secrets & key material — never commit
+.env
+.env.*
+!.env.example
+evm-wallet.json
+*wallet*.json
+*.key
+*.pem
+*.keystore
+keystore/
+secrets/
+
+# Local tooling & ops (not part of the public repo)
+tools/
+ops/
+
+# Runtime logs
+guard-*.log
+*.log

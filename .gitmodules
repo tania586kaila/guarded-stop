@@ -1,0 +1,6 @@
+[submodule "contracts/lib/reactive-lib-omni"]
+	path = contracts/lib/reactive-lib-omni
+	url = https://github.com/Reactive-Network/reactive-lib-omni
+[submodule "contracts/lib/forge-std"]
+	path = contracts/lib/forge-std
+	url = https://github.com/foundry-rs/forge-std

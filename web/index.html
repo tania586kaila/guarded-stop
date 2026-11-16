@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guarded Stop — the AI-guarded stop order</title>
+<meta name="description" content="A DEX stop order with an AI guard in the loop: a price breach only alarms the order — an on-chain AI verdict decides whether it sells. Built on Reactive Network (Lasna) + Base Sepolia for the Reactive Omni Buildathon, Reactive Meets AI track.">
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#121722; --panel2:#171e2c; --line:#26314a;
+    --text:#e8edf5; --dim:#9aa7bd; --accent:#4da3ff; --green:#2fbf71;
+    --red:#ff5c5c; --amber:#ffb84d; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:16px/1.55 -apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+  a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
+  .wrap{max-width:1080px;margin:0 auto;padding:32px 20px 64px}
+  header{padding:28px 0 8px}
+  h1{font-size:40px;line-height:1.15;margin:0 0 10px}
+  h1 .ai{color:var(--accent)}
+  .tagline{font-size:19px;color:var(--dim);max-width:820px;margin:0 0 18px}
+  .badges{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 6px}
+  .badge{font:12.5px var(--mono);border:1px solid var(--line);background:var(--panel);
+    padding:4px 10px;border-radius:999px;color:var(--dim)}
+  .badge b{color:var(--text);font-weight:600}
+  section{margin-top:38px}
+  h2{font-size:24px;margin:0 0 6px}
+  h2 .no{color:var(--accent);font-family:var(--mono);font-size:19px;margin-right:8px}
+  .sub{color:var(--dim);margin:0 0 16px;max-width:860px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media (max-width:760px){.grid2{grid-template-columns:1fr}}
+  table{width:100%;border-collapse:collapse;font-size:14.5px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--dim);font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:.04em}
+  tr:last-child td{border-bottom:none}
+  .mono{font-family:var(--mono);font-size:13px;word-break:break-all}
+  .addr{font-family:var(--mono);font-size:13px}
+  .controls{display:flex;align-items:center;gap:10px;margin:12px 0 4px;flex-wrap:wrap}
+  button{background:var(--accent);color:#06121f;border:none;font-weight:700;font-size:14px;
+    padding:8px 18px;border-radius:8px;cursor:pointer}
+  button.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+  button:hover{opacity:.88}
+  .statusline{font-family:var(--mono);font-size:13.5px;color:var(--amber);min-height:20px}
+  canvas{width:100%;height:300px;display:block;background:var(--panel2);border:1px solid var(--line);border-radius:10px}
+  .verdict{font-size:20px;font-weight:700}
+  .veto{color:var(--green)} .exec{color:var(--red)}
+  blockquote{margin:12px 0;padding:12px 16px;border-left:3px solid var(--accent);
+    background:var(--panel2);border-radius:0 8px 8px 0;color:var(--text);font-size:15px}
+  blockquote .who{color:var(--dim);font-size:13px}
+  .lat{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px}
+  .lat .cell{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 14px;min-width:170px}
+  .lat .num{font-size:24px;font-weight:700}
+  .lat .lbl{color:var(--dim);font-size:13px}
+  .ev td:first-child{font-family:var(--mono);white-space:nowrap;color:var(--dim)}
+  .pill{display:inline-block;font:11.5px var(--mono);padding:1px 8px;border-radius:999px;border:1px solid var(--line);color:var(--dim)}
+  .pill.lasna{color:#c792ff;border-color:#4a3570}.pill.base{color:#7db4ff;border-color:#2c4a7a}
+  .note{color:var(--dim);font-size:14px}
+  footer{margin-top:52px;border-top:1px solid var(--line);padding-top:18px;color:var(--dim);font-size:14px}
+  .kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px}
+  .kv .cell{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .kv .num{font-size:26px;font-weight:700}
+  .kv .lbl{color:var(--dim);font-size:13.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Guarded Stop — the <span class="ai">AI-guarded</span> stop order</h1>
+  <p class="tagline">A price breach only <em>alarms</em> this stop order. An AI guard reads the shape of the
+  move, posts its verdict on-chain, and a Reactive contract sells <strong>only</strong> on an AI
+  <strong>EXECUTE</strong> — so a flash wick doesn't dump you at the bottom, but a real trend
+  reversal still gets you out in about a second.</p>
+  <div class="badges">
+    <span class="badge">Track: <b>Reactive Meets AI</b></span>
+    <span class="badge">Reactive: <b>Lasna testnet · chainId 5318007</b></span>
+    <span class="badge">Origin / destination: <b>Base Sepolia · 84532</b></span>
+    <span class="badge">Contracts: <b>4 / 4 Sourcify-verified</b></span>
+    <span class="badge">Unit tests: <b>10 / 10 passing</b></span>
+    <span class="badge">Status: <b>deployed &amp; run end-to-end, 2026-11-16</b></span>
+  </div>
+  <p class="note">Testnet only — no mainnet, no real funds. Every number on this page is from the
+  recorded on-chain runs of 2026-11-16; each step links to its transaction.</p>
+</header>
+
+<section>
+  <h2><span class="no">01</span>The problem</h2>
+  <p class="sub">A plain threshold stop order sells the instant price touches the stop. In thin pools,
+  price routinely <strong>wicks</strong> through the stop for a second and bounces back — the mechanical
+  stop sells at the worst price of the day. Telling a wick from a real reversal means reading the
+  <em>shape</em> of the price series around the breach: something a small time-series model does well
+  and a contract cannot do at all. Guarded Stop puts that model inside the execution loop.</p>
+  <div class="grid2">
+    <div class="panel"><strong>Without the guard</strong><br>
+      <span class="note">Breach = sell. Wick at −3.3% through the stop → sold at the bottom,
+      price recovers 91% within seconds. (Act 1 below is exactly this script.)</span></div>
+    <div class="panel"><strong>With the guard</strong><br>
+      <span class="note">Breach = <em>pending</em>. The AI observes 30 ticks, posts EXECUTE / VETO /
+      HOLD on-chain, and the Reactive contract acts on the verdict — or on your pre-committed
+      fail-safe if the AI never answers (default: don't sell).</span></div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="no">02</span>Deployed contracts</h2>
+  <p class="sub">All four contracts are deployed and Sourcify-verified. The Reactive contract is the
+  pending-order state machine (MONITORING → PENDING → EXECUTED / VETOED / TIMED-OUT), not a forwarder.</p>
+  <div class="panel" style="padding:6px 20px">
+  <table>
+    <tr><th>Contract</th><th>Chain</th><th>Address</th><th>Deploy tx</th></tr>
+    <tr><td>MockPool <span class="note">(price feed + order registry)</span></td><td>Base Sepolia</td>
+      <td class="addr"><a href="https://sepolia.basescan.org/address/0x61E94433Ea4B03185c8272CC4D4B0F537C89528c" target="_blank" rel="noopener">0x61E94433…C89528c</a></td>
+      <td class="addr"><a href="https://sepolia.basescan.org/tx/0x780346772080f8cb74a530eceaa8c30e3bc8884513baa06c06831f281b2e4fcc" target="_blank" rel="noopener">0x78034677…2e4fcc</a></td></tr>
+    <tr><td>AISignal <span class="note">(on-chain inbox for AI verdicts)</span></td><td>Base Sepolia</td>
+      <td class="addr"><a href="https://sepolia.basescan.org/address/0xe194670A23B15a748c12c9dEA510B93F3bdd46C0" target="_blank" rel="noopener">0xe194670A…3bdd46C0</a></td>
+      <td class="addr"><a href="https://sepolia.basescan.org/tx/0x9f38e1c05e5d1db8e4bd475075cdd211e62c16d3714ed084f6d67a0b9436f8a4" target="_blank" rel="noopener">0x9f38e1c0…f6d67a0</a></td></tr>
+    <tr><td>GuardedStopReactive <span class="note">(the state machine)</span></td><td>Lasna</td>
+      <td class="addr"><a href="https://lasna.reactscan.net/address/0x74797ad794C71D7f58d0a0109192fc83AAb5fE3A" target="_blank" rel="noopener">0x74797ad7…AAb5fE3A</a></td>
+      <td class="addr"><a href="https://lasna.reactscan.net/tx/0xe816f596abffc57b1229543d8fc05d02c2eaca21e970f5cd0f53384c623bcdc3" target="_blank" rel="noopener">0xe816f596…bcdc3</a></td></tr>
+    <tr><td>StopExecutor <span class="note">(callback, double-guard verified)</span></td><td>Base Sepolia</td>
+      <td class="addr"><a href="https://sepolia.basescan.org/address/0x098D7c8f80F699508be44B1145D41394faD17cDe" target="_blank" rel="noopener">0x098D7c8f…faD17cDe</a></td>
+      <td class="addr"><a href="https://sepolia.basescan.org/tx/0xa12bb9719b22e507e650a90a007ba3991936052e8b30ef6e1fa82068f4ff2f72" target="_blank" rel="noopener">0xa12bb971…ff2f72</a></td></tr>
+  </table>
+  </div>
+</section>
+
+<section>
+  <h2><span class="no">03</span>Act 1 — flash wick → AI says <span class="veto">VETO</span>, position kept</h2>
+  <p class="sub">Order #3 · base price 87.82, stop 83.4312. The price knifes to 80.91 (−3.3% through the
+  stop) at tick 61, bottoms at 80.67, and recovers 91% of the drop inside the 30-tick observation window.
+  A mechanical stop would have sold at the bottom. Press play to replay the exact price series that was
+  fed on-chain.</p>
+  <canvas id="chart-wick" width="1040" height="300"></canvas>
+  <div class="controls">
+    <button id="play-wick">▶ Replay Act 1</button>
+    <button class="ghost" id="full-wick">Show full chart</button>
+    <span class="statusline" id="status-wick"></span>
+  </div>
+  <blockquote>“Price dipped 3.3% below the stop, then recovered 91% of the drop within the observation
+  window — the shape of a flash wick, not a trend change. Keep the position.”
+  <div class="who">— AI guard explanation, posted with the verdict (its hash is in the on-chain
+  <span class="mono">reasonHash</span>); verdict <b>VETO</b>, score 1000/1000</div></blockquote>
+  <div class="panel" style="padding:6px 20px">
+  <table class="ev">
+    <tr><th>Time (UTC)</th><th>Step</th><th>Chain</th><th>Transaction</th></tr>
+    <tr><td>10:46:54</td><td>StopOrderPlaced (origin event)</td><td><span class="pill base">Base Sepolia</span></td>
+      <td class="addr"><a href="https://sepolia.basescan.org/tx/0x3f02880453856741fa0716f6751afef4eb2fc765aad958a6450b40858cbd895a" target="_blank" rel="noopener">0x3f028804…bd895a</a></td></tr>
+    <tr><td>10:46:54</td><td>OrderRegistered (Reactive picks it up)</td><td><span class="pill lasna">Lasna</span></td>
+      <td class="addr"><a href="https://lasna.reactscan.net/tx/0xe993527e6bc257bbe11d5566422a9df8a618a3bef148b2b73706535654fef713" target="_blank" rel="noopener">0xe993527e…fef713</a></td></tr>
+    <tr><td>10:47:28</td><td>OrderPending — breach seen @ 80.91, order goes PENDING (no sell)</td><td><span class="pill lasna">Lasna</span></td>
+      <td class="addr"><a href="https://lasna.reactscan.net/tx/0x7cc8e27a46e619a95450fa22bbcd87fa851620d9ec6b7529f1f5059dcea139a1" target="_blank" rel="noopener">0x7cc8e27a…ea139a1</a></td></tr>
+    <tr><td>10:48:06</td><td>DecisionPosted — AI verdict <b>VETO</b>, score 1000</td><td><span class="pill base">Base Sepolia</span></td>
+      <td class="addr"><a href="https://sepolia.basescan.org/tx/0x2e2bec71151261a3e4e2a5648a798526acd6e872179ca6f2010e8de683fcbd32" target="_blank" rel="noopener">0x2e2bec71…fcbd32</a></td></tr>
+    <tr><td>10:48:06</td><td>OrderVetoed — pending cancelled, back to MONITORING</td><td><span class="pill lasna">Lasna</span></td>
+      <td class="addr"><a href="https://lasna.reactscan.net/tx/0x310a2cd04307dbe6e2d6d588cc4ed17d7aeb7652318b99a345d2473c52dbaa86" target="_blank" rel="noopener">0x310a2cd0…52dbaa86</a></td></tr>
+    <tr><td>—</td><td>StopExecuted — <b>none, by design</b></td><td>—</td><td class="note">Final on-chain state: order active = true, settled = false</td></tr>
+  </table>
+  </div>
+  <div class="lat">
+    <div class="cell"><div class="num">38 s</div><div class="lbl">breach → veto, end-to-end (30-tick AI observation window dominates)</div></div>
+    <div class="cell"><div class="num">&lt; 1 s</div><div class="lbl">AI decision on-chain → Reactive veto (same block timestamp)</div></div>
+    <div class="cell"><div class="num">0</div><div class="lbl">tokens sold — the position survived the wick</div></div>
+  </div>
+  <p class="note" id="live-wick">Recorded final state (2026-11-16): MockPool.orders(3) → active = true, settled = false.</p>
+</section>
+
+<section>
+  <h2><span class="no">04</span>Act 2 — real trend reversal → AI says <span class="exec">EXECUTE</span>, sold in ~1 s</h2>
+  <p class="sub">Order #6 · base price 89.43, stop 84.9604. The price breaks at tick 75 (84.8577) and keeps
+  sliding — 0% rebound, ending the window 9.6% below the stop at 73.6956. This time the guard confirms
+  the reversal, and the Reactive contract fires the cross-chain callback that settles the sell.</p>
+  <canvas id="chart-trend" width="1040" height="300"></canvas>
+  <div class="controls">
+    <button id="play-trend">▶ Replay Act 2</button>
+    <button class="ghost" id="full-trend">Show full chart</button>
+    <span class="statusline" id="status-trend"></span>
+  </div>
+  <blockquote>“Price broke the stop and kept falling — still 9.6% below it at the end of the window,
+  rebound 0%. This is a trend reversal, not a wick. Execute the stop.”
+  <div class="who">— AI guard explanation, posted with the verdict; verdict <b>EXECUTE</b>, score 1000/1000</div></blockquote>
+  <div class="panel" style="padding:6px 20px">
+  <table class="ev">
+    <tr><th>Time (UTC)</th><th>Step</th><th>Chain</th><th>Transaction</th></tr>
+    <tr><td>11:04:31</td><td>StopOrderPlaced (origin event)</td><td><span class="pill base">Base Sepolia</span></td>
+      <td class="addr"><a href="https://sepolia.basescan.org/tx/0x0f3b7d9b30d4695a4b82661fe7541c85dd0b09bfc6cee4cd0f5d4e96ca2fa1cf" target="_blank" rel="noopener">0x0f3b7d9b…2fa1cf</a></td></tr>
+    <tr><td>11:04:30</td><td>OrderRegistered (1 s clock skew between chains)</td><td><span class="pill lasna">Lasna</span></td>
+      <td class="addr"><a href="https://lasna.reactscan.net/tx/0x60bace1a0f167dd82715bd3d0aa506a39cd1338fcb67979768aba6e78d452ed0" target="_blank" rel="noopener">0x60bace1a…452ed0</a></td></tr>
+    <tr><td>11:05:33</td><td>OrderPending — breach seen @ 84.8577, order goes PENDING</td><td><span class="pill lasna">Lasna</span></td>
+      <td class="addr"><a href="https://lasna.reactscan.net/tx/0x00af7bc75f5bda39395db7310060492c9d42ec901e3a54351d099421d5d530eb" target="_blank" rel="noopener">0x00af7bc7…1d530eb</a></td></tr>
+    <tr><td>11:06:13</td><td>DecisionPosted — AI verdict <b>EXECUTE</b>, score 1000</td><td><span class="pill base">Base Sepolia</span></td>
+      <td class="addr"><a href="https://sepolia.basescan.org/tx/0x724b5c8903542d82095f8ecaa039d04a6f65fdd62b215eb1da5a115a8f3f96a7" target="_blank" rel="noopener">0x724b5c89…8f3f96a7</a></td></tr>
+    <tr><td>11:06:12</td><td>ExecutionRequested — Reactive requests the callback</td><td><span class="pill lasna">Lasna</span></td>
+      <td class="addr"><a href="https://lasna.reactscan.net/tx/0xf2e76260f0b555f878b565fbfed9c5754d314476436c9e1c17ed625b753af3a0" target="_blank" rel="noopener">0xf2e76260…53af3a0</a></td></tr>
+    <tr><td>11:06:14</td><td>StopExecuted — callback settles the sell @ 73.6956</td><td><span class="pill base">Base Sepolia</span></td>
+      <td class="addr"><a href="https://sepolia.basescan.org/tx/0x93340bf38ddd650950e5c31d7c519677a0f74b5549b438414aef90c5590116a3" target="_blank" rel="noopener">0x93340bf3…59016a3</a></td></tr>
+  </table>
+  </div>
+  <div class="lat">
+    <div class="cell"><div class="num">41 s</div><div class="lbl">breach → executed, end-to-end (again, mostly the 30-tick observation window)</div></div>
+    <div class="cell"><div class="num">1 s</div><div class="lbl">AI decision on-chain → sell settled on the destination chain</div></div>
+    <div class="cell"><div class="num">2 s</div><div class="lbl">callback requested on Lasna → settled on Base Sepolia</div></div>
+  </div>
+  <p class="note" id="live-trend">Recorded final state (2026-11-16): MockPool.orders(6) → active = false, settled = true;
+  StopExecutor.executed(6) = true; GuardedStopReactive state = Executed.</p>
+</section>
+
+<section>
+  <h2><span class="no">05</span>The AI guard, honestly</h2>
+  <p class="sub">The guard is a small gradient-boosting classifier (scikit-learn) that runs locally on CPU —
+  no paid API key, inference in single-digit milliseconds. It is trained on <strong>synthetic</strong> labelled
+  price series (wick / trend / chop, generated by a seeded script in the repo), so anyone can reproduce the
+  exact model and the exact demo inputs. It proves the loop; it is not trained on real market data, and we
+  say so wherever the numbers appear.</p>
+  <div class="kv">
+    <div class="cell"><div class="num">0.9967</div><div class="lbl">held-out accuracy (test n = 300, stratified)</div></div>
+    <div class="cell"><div class="num">1.0000</div><div class="lbl">EXECUTE recall — every real reversal in the test set fired the stop (100/100)</div></div>
+    <div class="cell"><div class="num">0.9950</div><div class="lbl">VETO recall — non-reversals where the position was kept (199/200)</div></div>
+    <div class="cell"><div class="num">~6 ms</div><div class="lbl">feature extraction + inference per decision (CPU, after warm-up)</div></div>
+  </div>
+  <p class="note" style="margin-top:14px">Every verdict is posted on-chain with its confidence score and a
+  <span class="mono">reasonHash</span> = keccak256(features + explanation + model version), so any judge can
+  recompute the features off-chain and audit why the guard decided what it decided. If the guard is down or
+  silent, no decision is posted and the contract's timeout fail-safe applies — which defaults to
+  <strong>not selling</strong>. (That fail-safe fired for real once during our testnet runs, when the guard
+  service wedged: the order timed out and the position was left untouched. See the incident log in
+  DEPLOYMENT.md §4.)</p>
+</section>
+
+<footer>
+  <p><strong>Guarded Stop</strong> — built for the Reactive Omni Buildathon · Reactive Meets AI track
+  (DoraHacks, Nov 5 – Dec 5, 2026). Full write-up, deployment evidence and incident log:
+  <a href="../docs/DEPLOYMENT.md">DEPLOYMENT.md</a> · code &amp; reproduction steps:
+  <a href="../README.md">repo README</a> · AI service: <span class="mono">ai-service/</span> in the project folder.</p>
+  <p>Networks: Reactive Lasna (5318007) · Base Sepolia (84532). Testnet only.</p>
+</footer>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<script>
+"use strict";
+/* Real data: the exact seeded synthetic series fed on-chain on 2026-11-16
+   (regenerable with ai-service/gen_data.py — wick seed 20261116, trend seed 20261117),
+   and the recorded on-chain event timestamps from DEPLOYMENT.md §3. */
+const SERIES = {
+ "wick": {
+  "prices": [
+   87.9095,
+   87.801,
+   87.7786,
+   87.8021,
+   87.7913,
+   87.9213,
+   87.7945,
+   87.5174,
+   87.5159,
+   87.2697,
+   87.4145,
+   87.3907,
+   87.408,
+   87.5541,
+   87.2812,
+   87.2427,
+   87.1231,
+   87.0503,
+   87.1898,
+   87.2292,
+   87.2704,
+   87.3443,
+   87.4171,
+   87.6577,
+   87.6567,
+   87.6797,
+   87.6939,
+   87.851,
+   87.6963,
+   87.7017,
+   87.5718,
+   87.6218,
+   87.8472,
+   88.0484,
+   88.0517,
+   88.1161,
+   88.1877,
+   88.2336,
+   88.0528,
+   87.812,
+   87.7061,
+   87.8335,
+   87.8563,
+   87.986,
+   88.1274,
+   88.1682,
+   88.2286,
+   88.013,
+   88.0994,
+   88.0967,
+   88.2684,
+   88.0939,
+   88.1031,
+   87.9542,
+   88.0509,
+   88.0153,
+   87.8824,
+   87.8393,
+   87.8111,
+   87.8188,
+   87.8188,
+   80.91,
+   80.923,
+   80.7669,
+   80.9027,
+   80.8178,
+   80.6657,
+   81.5976,
+   82.4721,
+   83.226,
+   83.8285,
+   84.8248,
+   85.4672,
+   86.1799,
+   87.0767,
+   87.9261,
+   87.7934,
+   87.7971,
+   87.7953,
+   87.7304,
+   87.5965,
+   87.6883,
+   87.5726,
+   87.6092,
+   87.4907,
+   87.4407,
+   87.4017,
+   87.4891,
+   87.2393,
+   87.4153,
+   87.2628,
+   87.3164,
+   87.358,
+   87.2912,
+   87.2099,
+   87.24,
+   87.1709,
+   87.1368,
+   87.2957,
+   87.257,
+   87.1668,
+   87.0594,
+   86.9871,
+   87.0118,
+   86.9941,
+   86.7724,
+   86.8751,
+   86.8321,
+   86.6882,
+   86.9421,
+   86.8519,
+   86.8011,
+   86.7328,
+   86.6724,
+   86.6801,
+   86.6693,
+   86.7234,
+   86.6329,
+   86.6585,
+   86.5809
+  ],
+  "meta": {
+   "scenario": "wick",
+   "target": 0.0,
+   "base_price": 87.82233656674684,
+   "stop_price": 83.4312197384095,
+   "breach_idx": 61.0,
+   "params": {
+    "depth_below_stop": 0.03147051920203272,
+    "drop_dur": 1,
+    "hold_dur": 5,
+    "rebound_dur": 9,
+    "recovery": 0.9940029344516202
+   }
+  }
+ },
+ "trend": {
+  "prices": [
+   89.301,
+   89.4223,
+   89.3663,
+   89.3044,
+   89.4246,
+   89.462,
+   89.43,
+   89.675,
+   89.3039,
+   89.2556,
+   89.197,
+   89.4414,
+   89.3684,
+   89.4221,
+   89.3104,
+   89.572,
+   89.6099,
+   89.2181,
+   89.261,
+   89.0404,
+   89.293,
+   89.3114,
+   89.236,
+   89.186,
+   89.0616,
+   89.2212,
+   89.0577,
+   89.0639,
+   88.8545,
+   88.8755,
+   88.9051,
+   88.9349,
+   88.9517,
+   89.1698,
+   89.2177,
+   89.2717,
+   89.3958,
+   89.6158,
+   89.5522,
+   89.4429,
+   89.5747,
+   89.3709,
+   89.5082,
+   89.6995,
+   89.8035,
+   89.9646,
+   89.6408,
+   89.5621,
+   89.4437,
+   89.5607,
+   89.5165,
+   89.6205,
+   89.553,
+   89.7584,
+   89.5454,
+   89.7368,
+   89.7755,
+   89.7163,
+   89.758,
+   89.7999,
+   89.7999,
+   89.3823,
+   89.1712,
+   88.5652,
+   88.356,
+   88.0438,
+   87.8706,
+   87.5648,
+   86.9609,
+   86.9686,
+   86.8044,
+   86.0622,
+   85.6436,
+   85.7746,
+   85.1726,
+   84.8577,
+   84.4105,
+   84.3059,
+   83.7171,
+   83.4433,
+   83.0947,
+   82.8146,
+   82.6391,
+   82.1784,
+   81.7533,
+   81.6978,
+   81.5563,
+   80.9996,
+   81.1348,
+   81.8574,
+   82.5285,
+   83.0109,
+   83.5098,
+   83.1957,
+   82.4941,
+   81.8849,
+   80.9377,
+   80.6928,
+   79.873,
+   79.6368,
+   78.9334,
+   78.1534,
+   77.6991,
+   77.218,
+   76.77,
+   75.944,
+   75.2356,
+   74.8209,
+   74.2053,
+   73.7136,
+   73.4965,
+   73.5545,
+   73.5608,
+   73.6082,
+   73.7258,
+   73.8499,
+   73.3673,
+   73.6488,
+   73.6819,
+   73.6956
+  ],
+  "meta": {
+   "scenario": "trend",
+   "target": 1.0,
+   "base_price": 89.43196639125236,
+   "stop_price": 84.96036807168974,
+   "breach_idx": 75.0,
+   "params": {
+    "extra_drop": 0.13297891664158218,
+    "decline_dur": 49,
+    "bounce_share": 0.29404574245741155
+   }
+  }
+ }
+};
+
+const ACTS = {
+  wick: {
+    canvas: "chart-wick", status: "status-wick",
+    prices: SERIES.wick.prices, stop: SERIES.wick.meta.stop_price,
+    breachIdx: SERIES.wick.meta.breach_idx, windowTicks: 30,
+    color: "#2fbf71",
+    outcome: "VETO — pending cancelled, position kept (nothing sold)",
+    phases: [
+      {to: SERIES.wick.meta.breach_idx, text: "Monitoring… price hovering above the stop."},
+      {to: SERIES.wick.meta.breach_idx + 30, text: "⚠ Breach @ 80.91 — order PENDING. A mechanical stop would sell here. The AI guard is watching 30 ticks…"},
+      {to: 119, text: "Price recovered 91% of the drop → AI verdict VETO posted on-chain → Reactive contract cancels the pending order."}
+    ],
+    final: "✅ VETO — position kept. Decision → Reactive veto < 1 s."
+  },
+  trend: {
+    canvas: "chart-trend", status: "status-trend",
+    prices: SERIES.trend.prices, stop: SERIES.trend.meta.stop_price,
+    breachIdx: SERIES.trend.meta.breach_idx, windowTicks: 30,
+    color: "#ff5c5c",
+    outcome: "EXECUTE — callback settled the sell @ 73.6956",
+    phases: [
+      {to: SERIES.trend.meta.breach_idx, text: "Monitoring… price hovering above the stop."},
+      {to: SERIES.trend.meta.breach_idx + 30, text: "⚠ Breach @ 84.8577 — order PENDING. The AI guard is watching 30 ticks…"},
+      {to: 119, text: "No rebound — price still falling → AI verdict EXECUTE posted on-chain → Reactive callback settles the sell."}
+    ],
+    final: "✅ EXECUTE — sell settled on Base Sepolia 1 s after the AI decision."
+  }
+};
+
+function drawChart(act, upto) {
+  const cv = document.getElementById(act.canvas);
+  const ctx = cv.getContext("2d");
+  const W = cv.width, H = cv.height, P = {l: 58, r: 16, t: 18, b: 30};
+  const prices = act.prices, n = prices.length;
+  let lo = Math.min(...prices, act.stop), hi = Math.max(...prices, act.stop);
+  const pad = (hi - lo) * 0.12; lo -= pad; hi += pad;
+  const X = i => P.l + (W - P.l - P.r) * (i / (n - 1));
+  const Y = v => P.t + (H - P.t - P.b) * (1 - (v - lo) / (hi - lo));
+  ctx.clearRect(0, 0, W, H);
+  // gridlines + y labels
+  ctx.strokeStyle = "#232c40"; ctx.fillStyle = "#7d8aa5"; ctx.font = "12px ui-monospace,monospace"; ctx.lineWidth = 1;
+  for (let g = 0; g <= 4; g++) {
+    const v = lo + (hi - lo) * g / 4, y = Y(v);
+    ctx.beginPath(); ctx.moveTo(P.l, y); ctx.lineTo(W - P.r, y); ctx.stroke();
+    ctx.fillText(v.toFixed(1), 8, y + 4);
+  }
+  ctx.fillText("tick", W - P.r - 26, H - 8);
+  // pending window shading
+  const b = act.breachIdx, d = Math.min(b + act.windowTicks, n - 1);
+  if (upto > b) {
+    ctx.fillStyle = "rgba(255,184,77,0.10)";
+    ctx.fillRect(X(b), P.t, X(Math.min(d, upto)) - X(b), H - P.t - P.b);
+  }
+  // stop line
+  ctx.strokeStyle = "#ffb84d"; ctx.setLineDash([7, 5]); ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(P.l, Y(act.stop)); ctx.lineTo(W - P.r, Y(act.stop)); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = "#ffb84d"; ctx.fillText("stop " + act.stop.toFixed(2), P.l + 6, Y(act.stop) - 7);
+  // price line up to `upto`
+  ctx.strokeStyle = "#4da3ff"; ctx.lineWidth = 2; ctx.beginPath();
+  for (let i = 0; i <= upto; i++) { const x = X(i), y = Y(prices[i]); i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); }
+  ctx.stroke();
+  // breach marker
+  if (upto >= b) {
+    ctx.fillStyle = "#ffb84d";
+    ctx.beginPath(); ctx.arc(X(b), Y(prices[b]), 5, 0, 7); ctx.fill();
+    ctx.fillText("breach " + prices[b].toFixed(2), X(b) - 18, Y(prices[b]) + 22);
+  }
+  // decision marker
+  if (upto >= d) {
+    ctx.fillStyle = act.color;
+    ctx.beginPath(); ctx.arc(X(d), Y(prices[d]), 5, 0, 7); ctx.fill();
+    ctx.fillText("AI decision", X(d) - 24, Y(prices[d]) - 12);
+  }
+  // end point
+  if (upto >= n - 1) {
+    ctx.fillStyle = act.color;
+    ctx.beginPath(); ctx.arc(X(n - 1), Y(prices[n - 1]), 5, 0, 7); ctx.fill();
+    ctx.fillText(prices[n - 1].toFixed(2), X(n - 1) - 44, Y(prices[n - 1]) - 10);
+  }
+}
+
+const timers = {};
+function playAct(key) {
+  const act = ACTS[key];
+  const status = document.getElementById(act.status);
+  if (timers[key]) { clearInterval(timers[key]); timers[key] = null; }
+  let i = 0;
+  drawChart(act, 0);
+  status.textContent = act.phases[0].text;
+  timers[key] = setInterval(() => {
+    i += 1;
+    if (i >= act.prices.length) {
+      i = act.prices.length - 1;
+      clearInterval(timers[key]); timers[key] = null;
+      drawChart(act, i);
+      status.textContent = act.final;
+      return;
+    }
+    drawChart(act, i);
+    for (const ph of act.phases) { if (i <= ph.to) { status.textContent = ph.text; break; } }
+  }, 90); // 120 ticks ≈ 11 s per act
+}
+function fullAct(key) {
+  const act = ACTS[key];
+  if (timers[key]) { clearInterval(timers[key]); timers[key] = null; }
+  drawChart(act, act.prices.length - 1);
+  document.getElementById(act.status).textContent = act.final;
+}
+document.getElementById("play-wick").addEventListener("click", () => playAct("wick"));
+document.getElementById("full-wick").addEventListener("click", () => fullAct("wick"));
+document.getElementById("play-trend").addEventListener("click", () => playAct("trend"));
+document.getElementById("full-trend").addEventListener("click", () => fullAct("trend"));
+fullAct("wick"); fullAct("trend");
+
+/* Best-effort live check: read the two orders' current state from Base Sepolia.
+   If the RPC or CDN is unreachable, the recorded 2026-11-16 snapshot above stands. */
+(async () => {
+  try {
+    if (!window.ethers) return;
+    const provider = new ethers.JsonRpcProvider("https://base-sepolia-rpc.publicnode.com");
+    const pool = new ethers.Contract(
+      "0x61E94433Ea4B03185c8272CC4D4B0F537C89528c",
+      ["function orders(uint256) view returns (address owner, uint256 amount, uint256 stopPrice, bool failSafeExecute, bool active, bool settled)"],
+      provider);
+    const [o3, o6] = await Promise.all([pool.orders(3), pool.orders(6)]);
+    document.getElementById("live-wick").textContent =
+      "Live check (just now, Base Sepolia): MockPool.orders(3) → active = " + o3.active + ", settled = " + o3.settled + " — position still held.";
+    document.getElementById("live-trend").textContent =
+      "Live check (just now, Base Sepolia): MockPool.orders(6) → active = " + o6.active + ", settled = " + o6.settled + " — the sell stands.";
+  } catch (e) { /* recorded snapshot remains */ }
+})();
+</script>
+</body>
+</html>
